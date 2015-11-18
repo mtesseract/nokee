@@ -290,7 +290,7 @@ cmdNoteList tagsStr storeHandle = do
   let notes' = if null tags
                then notes
                else filter (filterByTags tags) notes
-  mapM_ (putStrLn . notePrintSummary) notes'
+  putStr $ notesPrintSummary notes'
 
 cmdNoteListStores :: IO ()
 cmdNoteListStores = do
@@ -318,16 +318,22 @@ retrieveReferencedTags storeHandle = do
                              \ON TAGS.ID = NOTETAGS.TAG;" :: IO [[String]]
   return $ nubSort (map head tags)
 
-notePrintSummary :: Note -> String
-notePrintSummary note =
+notePrintSummary :: Note -> Int -> String
+notePrintSummary note padding =
   let nId   = maybe "0" show (noteID note)
       cTime = maybe "" show (noteCTime note)
-  in nId ++ " " ++ cTime ++ " " ++ noteTitle note
+  in pad nId ++ nId ++ " " ++ cTime ++ " " ++ noteTitle note
+  where pad n = replicate (padding - length n) ' '
+
+notesPrintSummary :: [Note] -> String
+notesPrintSummary notes =
+  let idMax = length $ show (maximum (mapMaybe noteID notes))
+  in concatMap (\ note -> notePrintSummary note idMax ++ "\n") notes
 
 cmdNoteSearch :: String -> StoreHandle -> IO ()
 cmdNoteSearch pattern storeHandle = do
   notes <- noteSearch pattern storeHandle
-  mapM_ (putStrLn . notePrintSummary) notes
+  putStr $ notesPrintSummary notes
 
 cmdNoteInit :: String -> IO ()
 cmdNoteInit storeName = do
