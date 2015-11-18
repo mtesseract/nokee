@@ -33,6 +33,7 @@ nokee opts = do
     AddOptions -> withStore store cmdNoteAdd
     ListOptions tags -> withStore store (cmdNoteList tags)
     ListStoreOptions -> cmdNoteListStores
+    ListTagsOptions -> withStore store cmdNoteListTags
     SearchOptions pattern -> withStore store $ cmdNoteSearch pattern
     RetrieveOptions nId -> withStore store $ cmdNoteRetrieve nId
 
@@ -57,6 +58,7 @@ data Command
   | SearchOptions String
   | InitOptions
   | ListStoreOptions
+  | ListTagsOptions
   
 nokeeOptions :: Parser NokeeOptions
 nokeeOptions = NokeeOptions
@@ -80,6 +82,8 @@ nokeeOptions = NokeeOptions
                              (progDesc "List notes"))
           <> command "list-stores" (info listStoresOptions
                              (progDesc "List Stores"))
+          <> command "list-tags" (info listTagsOptions
+                                  (progDesc "List Tags"))
           <> command "init" (info initOptions
                              (progDesc "Initialize store"))
           <> command "search" (info searchOptions
@@ -95,6 +99,7 @@ nokeeOptions = NokeeOptions
                                                        <> metavar "TAGS"
                                                        <> help "Specify tags.")
         listStoresOptions = pure ListStoreOptions
+        listTagsOptions   = pure ListTagsOptions
         editOptions       = EditOptions     <$> argument auto (metavar "ID")
         deleteOptions     = DeleteOptions   <$> argument auto (metavar "ID")
         searchOptions     = SearchOptions   <$> argument str  (metavar "PATTERN")

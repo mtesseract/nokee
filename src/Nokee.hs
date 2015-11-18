@@ -139,8 +139,9 @@ noteUpdate storeHandle note = do
   -- FIXME: Exception, if no noteID!
   execute storeHandle "UPDATE NOTES SET TITLE=?, BODY=?, MTIME=CURRENT_TIMESTAMP WHERE ID=?;"
     (noteTitle note, noteBody note, noteID note)
-
+  tagsAdd storeHandle (noteTags note)
   updateTags (fromJust (noteID note)) (noteTags note)
+
   where updateTags :: NoteID -> [Tag] -> IO ()
         updateTags nId tags = do
           execute storeHandle "DELETE FROM NOTETAGS WHERE NOTE=?;" (Only nId)
@@ -306,6 +307,16 @@ cmdNoteListStores = do
                          in case matches of
                               ([_, name]:_) -> Just name
                               _ -> Nothing
+
+cmdNoteListTags :: StoreHandle -> IO ()
+cmdNoteListTags storeHandle =
+  retrieveReferencedTags storeHandle >>= mapM_ putStrLn
+
+retrieveReferencedTags :: StoreHandle -> IO [Tag]
+retrieveReferencedTags storeHandle = do
+  tags <- query_ storeHandle "SELECT TAGS.NAME FROM TAGS INNER JOIN NOTETAGS \
+                             \ON TAGS.ID = NOTETAGS.TAG;" :: IO [[String]]
+  return $ nubSort (map head tags)
 
 notePrintSummary :: Note -> String
 notePrintSummary note =

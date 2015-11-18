@@ -8,6 +8,7 @@ import System.Environment
 import System.Exit
 import System.IO
 import System.Process
+import Data.List
 
 execProcess :: String -> [String] -> String -> IO ExitCode
 execProcess cmd args input = do
@@ -30,3 +31,6 @@ listIntersection :: (Eq a) => [a] -> [a] -> [a]
 listIntersection list0 list1 =
   filter containedInList1 list0
   where containedInList1 x = x `elem` list1
+
+nubSort :: (Ord a) => [a] -> [a]
+nubSort = nub . sort
