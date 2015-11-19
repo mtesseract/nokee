@@ -12,6 +12,7 @@ import Data.String.Utils
 import Data.Time.Clock
 import Database.SQLite.Simple
 import System.Directory
+import Data.Time.Format
 import System.Environment
 import System.Exit
 import System.FilePath
@@ -321,7 +322,8 @@ retrieveReferencedTags storeHandle = do
 notePrintSummary :: Note -> Int -> String
 notePrintSummary note padding =
   let nId   = maybe "0" show (noteID note)
-      cTime = maybe "" show (noteCTime note)
+      cTime = fromMaybe "                   "
+                        (formatTime defaultTimeLocale "%F %R" <$> (noteCTime note))
   in pad nId ++ nId ++ " " ++ cTime ++ " " ++ noteTitle note
   where pad n = replicate (padding - length n) ' '
 
