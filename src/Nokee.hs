@@ -268,7 +268,8 @@ cmdNoteEdit nId storeHandle =
 noteList :: StoreHandle -> Maybe String -> IO [Note]
 noteList storeHandle maybePattern = do
   dbnotes <- case maybePattern of
-               Just p -> query storeHandle "SELECT * FROM NOTES WHERE BODY LIKE ?;" (Only p) :: IO [DBNote]
+               Just p -> query storeHandle "SELECT * FROM NOTES WHERE \
+                                           \TITLE LIKE ? OR BODY LIKE ?;" (p, p) :: IO [DBNote]
                _      -> query_ storeHandle "SELECT ID, TITLE, BODY, CTIME, MTIME FROM NOTES;" :: IO [DBNote]
   mapM prepareNote dbnotes
   where prepareNote :: DBNote -> IO Note
