@@ -10,6 +10,8 @@ import System.IO
 import System.Process
 import Data.List
 
+-- Convenience wrapper around createProcess. Feed the specified String
+-- as input to the newly created process.
 execProcess :: String -> [String] -> String -> IO ExitCode
 execProcess cmd args input = do
   let processSpec = proc cmd args
@@ -19,6 +21,7 @@ execProcess cmd args input = do
   hClose inHandle
   waitForProcess pHandle
 
+-- Spawns an editor, opening the specified filename.
 execEditor :: String -> String -> IO ExitCode
 execEditor defaultEditor filename = do
   editor <- fromMaybe defaultEditor <$> lookupEnv "EDITOR"
@@ -32,5 +35,7 @@ listIntersection list0 list1 =
   filter containedInList1 list0
   where containedInList1 x = x `elem` list1
 
+-- Return the input list sorted and after duplicate elements have been
+-- removed.
 nubSort :: (Ord a) => [a] -> [a]
 nubSort = nub . sort
