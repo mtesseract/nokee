@@ -4,11 +4,13 @@
 module Main where
 
 import Options.Applicative
-
 import Control.Exception
 import Data.Typeable
 import Nokee
 
+---------------------
+-- Nokee constants --
+---------------------
 programName :: String
 programName = "nokee"
 
@@ -18,25 +20,18 @@ programVersion = "0.1-git"
 programDescription :: String
 programDescription = "(Simple & Stupid) Note Manager"
 
+-----------------------------
+-- Define Nokee exceptions --
+-----------------------------
+
 data NokeeException = ExceptionString String | ExceptionNone
     deriving (Show, Typeable)
 
 instance Exception NokeeException
 
-nokee :: NokeeOptions -> IO ()
-nokee opts = do
-  let store = optsStore opts
-  case optsCommand opts of
-    InitOptions -> cmdNoteInit store
-    EditOptions nId -> withStore store $ cmdNoteEdit nId
-    DeleteOptions nId -> withStore store $ cmdNoteDelete nId
-    AddOptions -> withStore store cmdNoteAdd
-    ListOptions tags -> withStore store (cmdNoteList tags)
-    ListStoreOptions -> cmdNoteListStores
-    ListTagsOptions -> withStore store cmdNoteListTags
-    SearchOptions pattern -> withStore store $ cmdNoteSearch pattern
-    RetrieveOptions nId -> withStore store $ cmdNoteRetrieve nId
-
+-- This gets called after arguments have been parsed. This function is
+-- just a wrapper around the function 'nokee', adding exception
+-- handling.
 main' :: NokeeOptions -> IO ()
 main' opts =
   catch (nokee opts)
@@ -44,11 +39,38 @@ main' opts =
                   ExceptionString s -> putStrLn $ "Error: " ++ s
                   ExceptionNone     -> return ())
 
+-- Implements the main program logic. May throw NokeeExceptions, they
+-- will be handled in the caller.
+nokee :: NokeeOptions -> IO ()
+nokee opts = do
+  let store = optsStore opts
+  case optsCommand opts of
+    InitOptions ->
+      cmdNoteInit store
+    EditOptions nId ->
+      nokeeWithStore store $ cmdNoteEdit nId
+    DeleteOptions nId ->
+      nokeeWithStore store $ cmdNoteDelete nId
+    AddOptions ->
+      nokeeWithStore store cmdNoteAdd
+    ListOptions tags ->
+      nokeeWithStore store (cmdNoteList tags)
+    ListStoreOptions ->
+      cmdNoteListStores
+    ListTagsOptions ->
+      nokeeWithStore store cmdNoteListTags
+    SearchOptions pattern ->
+      nokeeWithStore store $ cmdNoteSearch pattern
+    RetrieveOptions nId ->
+      nokeeWithStore store $ cmdNoteRetrieve nId
+
+-- This type holds the information about parsed arguments.
 data NokeeOptions = NokeeOptions
   { optsVersion :: Bool
   , optsStore   :: String
   , optsCommand :: Command }
 
+-- Type for storing information about the parsed commands.
 data Command
   = RetrieveOptions Integer
   | AddOptions
@@ -59,7 +81,8 @@ data Command
   | InitOptions
   | ListStoreOptions
   | ListTagsOptions
-  
+
+-- The Nokee argument parser.
 nokeeOptions :: Parser NokeeOptions
 nokeeOptions = NokeeOptions
      <$> switch
@@ -105,8 +128,11 @@ nokeeOptions = NokeeOptions
         searchOptions     = SearchOptions   <$> argument str  (metavar "PATTERN")
         retrieveOptions   = RetrieveOptions <$> argument auto (metavar "ID")
 
+-- Main entry point. This parses arguments and passes the parsed
+-- arguments to main'.
 main :: IO ()
 main = execParser opts >>= main'
   where opts = info (helper <*> nokeeOptions)
                  (fullDesc
+                  <> progDesc "Utility for managing plaintext notes."
                   <> header (programName ++ " - " ++ programDescription))
