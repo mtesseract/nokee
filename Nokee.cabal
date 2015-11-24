@@ -1,6 +1,6 @@
 name:                Nokee
 version:             0.1.0
-synopsis:            Simple project template from stack
+synopsis:            Utility for managing plaintext notes
 description:         Please see README.md
 homepage:            http://github.com/mtesseract/nokee#readme
 license:             BSD3
