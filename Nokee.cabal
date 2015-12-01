@@ -1,5 +1,5 @@
 name:                Nokee
-version:             0.1.0
+version:             0.0.9
 synopsis:            Utility for managing plaintext notes
 description:         Please see README.md
 homepage:            http://github.com/mtesseract/nokee#readme
@@ -31,3 +31,4 @@ executable nokee
                      , time >= 1.5.0.1
   other-modules:       Nokee
                      , Utilities
+                     , Paths_Nokee

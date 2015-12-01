@@ -1,6 +1,16 @@
 -- Nokee (Note Keeper).
 -- Copyright (C) 2015 Moritz Schulte <mtesseract@silverratio.net>
 
+{-|
+Module      : Utilities
+Description : Some utility function used by Nokee
+Copyright   : (C) 2015 Moritz Schulte
+License     : BSD3
+Maintainer  : Moritz Schulte <mtesseract@silverratio.net>
+Stability   : experimental
+Portability : POSIX
+-}
+
 module Utilities where
 
 import Data.Maybe
@@ -10,9 +20,15 @@ import System.IO
 import System.Process
 import Data.List
 
--- Convenience wrapper around createProcess. Feed the specified String
--- as input to the newly created process.
-execProcess :: String -> [String] -> String -> IO ExitCode
+-- | Convenience wrapper for createProcess. Feeds the specified String
+-- as input to the newly created process, inherits stdout, stderr and
+-- the controlling terminal.
+execProcess :: String      -- ^ The executable to execute
+            -> [String]    -- ^ The list of arguments
+            -> String      -- ^ The input to be passed to the
+                           -- executable as its standard input
+            -> IO ExitCode -- ^ The exit code returned by the
+                           -- executable
 execProcess cmd args input = do
   let processSpec = proc cmd args
       processSpec' = processSpec { std_in = CreatePipe }
@@ -21,21 +37,28 @@ execProcess cmd args input = do
   hClose inHandle
   waitForProcess pHandle
 
--- Spawns an editor, opening the specified filename.
-execEditor :: String -> String -> IO ExitCode
+-- | Spawns an editor, opening the specified filename.
+execEditor :: String      -- ^ The default editor command to use in
+                          -- case the environemnt variable EDITOR is
+                          -- not set
+           -> String      -- ^ The name of the file to open
+           -> IO ExitCode -- ^ The exit code returned by the editor
 execEditor defaultEditor filename = do
   editor <- fromMaybe defaultEditor <$> lookupEnv "EDITOR"
   rawSystem editor [filename]
 
--- Form the intersection list of two lists, i.e. the list of those
--- elements, which are contained in both lists (the list elements are
--- regarded as pairwise distinct).
-listIntersection :: (Eq a) => [a] -> [a] -> [a]
-listIntersection list0 list1 =
-  filter containedInList1 list0
-  where containedInList1 x = x `elem` list1
-
--- Return the input list sorted and after duplicate elements have been
+-- | Forms the intersection list of two lists, i.e. the list of those
+-- elements, which are contained in both lists. Duplicate elements are
 -- removed.
-nubSort :: (Ord a) => [a] -> [a]
+listIntersection :: (Eq a) =>
+                    [a] -> [a] -- ^ The input lists
+                 -> [a]        -- ^ The computed intersection list
+listIntersection list0 list1 =
+  let (list0', list1') = (nub list0, nub list1)
+  in filter ((flip elem) list1') list0'
+
+-- | Returns the input list sorted and cleaned of duplicate elements.
+nubSort :: (Ord a) =>
+           [a] -- ^ The input list
+        -> [a] -- ^ The output list
 nubSort = nub . sort

@@ -3,7 +3,20 @@
 
 {-# LANGUAGE OverloadedStrings #-}
 
-module Nokee (cmdNoteAdd,
+{-|
+Module      : Nokee
+Description : Module implementing the Nokee core functionality.
+Copyright   : (C) 2015 Moritz Schulte
+License     : BSD3
+Maintainer  : Moritz Schulte <mtesseract@silverratio.net>
+Stability   : experimental
+Portability : POSIX
+-}
+
+module Nokee (StoreName,
+              StoreHandle,
+              NoteID,
+              cmdNoteAdd,
               cmdNoteDelete,
               cmdNoteRetrieve,
               cmdNoteEdit,
@@ -35,18 +48,26 @@ import Utilities
 -- Constants --
 ---------------
 
+-- | The subdirectory in the calling user's home directory containing
+-- Nokees data (potentially configuration data and the data stores).
 baseDirectory :: String
 baseDirectory = ".nokee"
 
+-- | The subdirectory below 'baseDirectory' in which Nokee expects to
+-- find its data stores.
 storeDirectory :: String
 storeDirectory = baseDirectory </> "stores"
 
+-- | The filename suffix for data store files in 'storeDirectory'.
 storeSuffix :: String
 storeSuffix = "db"
 
+-- | The name of the SQLite executable to use for data store
+-- initialization.
 sqliteExecutable :: String
 sqliteExecutable = "sqlite3"
 
+-- | The SQL commands used for initializing data stores.
 sqliteStoreTableDef :: String
 sqliteStoreTableDef = "CREATE TABLE NOTES(ID INTEGER PRIMARY KEY, \
                                          \TITLE TEXT, BODY TEXT, \
@@ -57,15 +78,22 @@ sqliteStoreTableDef = "CREATE TABLE NOTES(ID INTEGER PRIMARY KEY, \
                       \CREATE TABLE NOTETAGS(NOTE INTEGER,\
                                             \TAG INTEGER);"
 
+-- | Template used for temporary files.
 tmpfileTemplate :: String
 tmpfileTemplate = "nokee.txt"
 
+-- | The delimiter string used in plain text representations of Notes
+-- as line no. 3 (after the first line holding the title and the
+-- second line holding a list of tags).
 nokeeStringDelimiter :: String
 nokeeStringDelimiter = ""
 
+-- | The default editor to use in case the environment variable EDITOR
+-- is not set.
 defaultEditor :: String
 defaultEditor = "emacs"
 
+-- | Opens the specified file in the editor, returning an ExitCode.
 editor :: String -> IO ExitCode
 editor = execEditor defaultEditor
 
@@ -73,14 +101,22 @@ editor = execEditor defaultEditor
 -- Data Types --
 ----------------
 
+-- | A store name is a 'String'.
 type StoreName   = String
+
+-- | A note identifier is an 'Integer'.
 type NoteID      = Integer
+
+-- | A tag is a 'String'.
 type Tag         = String
+
+-- | A TagID is an 'Integer'.
 type TagID       = Integer
+
+-- | A store handle is an SQLite 'Connection'.
 type StoreHandle = Connection
 
--- A note. May contain metadata like Note ID, creation time,
--- modification time.
+-- | Datatype contanining a note.
 data Note = Note { noteID    :: Maybe NoteID
                  , noteTitle :: String
                  , noteTags  :: [Tag]
@@ -89,7 +125,7 @@ data Note = Note { noteID    :: Maybe NoteID
                  , noteMTime :: Maybe UTCTime
                  } deriving (Show)
 
--- A row as contained in the NOTES table.
+-- | A row as contained in the NOTES table.
 data DBNote = DBNote { dbnoteID    :: NoteID
                      , dbnoteTitle :: String
                      , dbnoteBody  :: String
@@ -97,7 +133,7 @@ data DBNote = DBNote { dbnoteID    :: NoteID
                      , dbnoteMTime :: UTCTime
                      } deriving (Show)
 
--- Implement FromRow instance so that DBNotes can be retrieved
+-- | Implement 'FromRow' instance so that 'DBNote's can be retrieved
 -- directly from the database.
 instance FromRow DBNote where
   fromRow = DBNote <$> field <*> field <*> field <*> field <*> field
@@ -106,8 +142,8 @@ instance FromRow DBNote where
 -- High Level Interface --
 --------------------------
 
--- Implementation of the command 'add': Spawn an editor, let user edit
--- a new note and add the new note to the database.
+-- | Implementation of the command add: Spawns an editor, lets user edit
+-- a new note and then adds the new note to the database.
 cmdNoteAdd :: StoreHandle -> IO ()
 cmdNoteAdd storeHandle =
   withSystemTempFile tmpfileTemplate
@@ -154,15 +190,13 @@ cmdNoteAdd storeHandle =
                                \empty line.\n\n\
                                \Happy Hacking!" }
 
-
-
--- Implementation of the command 'delete': Removes a note, given its
--- NoteID.
+-- | Implementation of the command delete: Removes a note given its
+-- 'NoteID'.
 cmdNoteDelete :: NoteID -> StoreHandle -> IO ()
 cmdNoteDelete = noteDelete
 
--- Implementation of the command 'retrieve': Retrieve the note with
--- the specified NoteID and display it.
+-- | Implementation of the command retrieve: Retrieves the note with
+-- the specified 'NoteID' and displays it on standard out.
 cmdNoteRetrieve :: NoteID -> StoreHandle -> IO ()
 cmdNoteRetrieve nId storeHandle = do
   maybeNote <- noteRetrieve storeHandle nId
@@ -170,10 +204,10 @@ cmdNoteRetrieve nId storeHandle = do
     Just note -> putStr (noteToString note)
     Nothing -> putStr "Note not found."
 
--- Implementation of the command 'edit': Retrieve the note with the
--- specified NotID from the database, spawn an editor and let the user
--- edit the note. After editing, update the note as it is stored in
--- the database.
+-- | Implementation of the command edit: Retrieves the note with the
+-- specified 'NoteID' from the database, spawns an editor and lets the
+-- user edit the note. After editing, updates the note in the
+-- database.
 cmdNoteEdit :: NoteID -> StoreHandle -> IO ()
 cmdNoteEdit nId storeHandle =
   withSystemTempFile tmpfileTemplate
@@ -193,10 +227,11 @@ cmdNoteEdit nId storeHandle =
             Just note -> noteUpdate storeHandle (note { noteID = Just nId })
             Nothing -> cmdNoteUpdate' filename
 
--- Implementation of the command 'list': Display a summary of notes
--- matching the given tags string or all notes in the store if no tags
--- are specified.
-cmdNoteList :: String -> StoreHandle -> IO ()
+-- | Implementation of the command list: Displays a summary of notes
+-- matching the given list of tags or all notes in the store if no
+-- tags are specified.
+cmdNoteList :: String -- ^ Comma seperated list of tags
+            -> StoreHandle -> IO ()
 cmdNoteList tagsStr storeHandle = do
   let tags = unpackTags tagsStr
   notes <- noteList storeHandle Nothing
@@ -207,7 +242,7 @@ cmdNoteList tagsStr storeHandle = do
   where filterByTags :: [Tag] -> Note -> Bool
         filterByTags tags note = not $ null (listIntersection tags (noteTags note))
 
--- Implementation of the command 'list-stores': Display all existing
+-- | Implementation of the command list-stores: Displays all existing
 -- stores.
 cmdNoteListStores :: IO ()
 cmdNoteListStores = do
@@ -228,32 +263,31 @@ cmdNoteListStores = do
                               ([_, name]:_) -> Just name
                               _ -> Nothing
 
--- Implementation of the command 'list-tags': Display a sorted list of
+-- | Implementation of the command list-tags: Displays a sorted list of
 -- (referenced) tags. That is, tags which are contained in the
 -- database but not associated with any notes, will not be displayed.
 cmdNoteListTags :: StoreHandle -> IO ()
 cmdNoteListTags storeHandle =
   retrieveReferencedTags storeHandle >>= mapM_ putStrLn
 
--- Implementation of the command 'search': Display a summary of the
+-- | Implementation of the command search: Displays a summary of the
 -- notes which match the specified pattern.
-cmdNoteSearch :: String -> StoreHandle -> IO ()
+cmdNoteSearch :: String -- ^ The search pattern
+              -> StoreHandle -> IO ()
 cmdNoteSearch pattern storeHandle = do
   notes <- noteSearch pattern storeHandle
   putStr $ notesPrintSummary notes
 
--- Implementation of the command 'init: Initialize a store with the
+-- | Implementation of the command init: Initialize a store with the
 -- specified name.
-cmdNoteInit :: String -> IO ()
+cmdNoteInit :: StoreName -> IO ()
 cmdNoteInit storeName = do
   storeFile <- storeFileName storeName
   let storeDir = takeDirectory storeFile
   createDirectoryIfMissing True storeDir
   noteStoreInitialize storeFile
 
-------
-
--- Given a NoteID, retrieve the list of tags associated with that
+-- | Given a 'NoteID', retrieves the list of tags associated with that
 -- note.
 retrieveTags :: StoreHandle -> NoteID -> IO [Tag]
 retrieveTags storeHandle nId = do
@@ -268,7 +302,7 @@ retrieveTags storeHandle nId = do
                         (Only tId) :: IO [[String]]
           return $ head <$> listToMaybe rows -- FIXME (head)?
 
--- Given a NoteID, retrieve the matching row, wrapped in a DBNote,
+-- | Given a 'NoteID', retrieves the matching row, wrapped in a 'DBNote',
 -- from the database.
 dbnoteRetrieve :: StoreHandle -> NoteID -> IO (Maybe DBNote)
 dbnoteRetrieve storeHandle nId = do
@@ -276,7 +310,7 @@ dbnoteRetrieve storeHandle nId = do
                             (Only nId) :: IO [DBNote]
   return (listToMaybe rows)
 
--- Retrieve a complete Note, given its NoteID.
+-- | Retrieve a complete 'Note' given its 'NoteID'.
 noteRetrieve :: StoreHandle -> NoteID -> IO (Maybe Note)
 noteRetrieve storeHandle nId = do
   maybeDBNote <- dbnoteRetrieve storeHandle nId
@@ -292,14 +326,14 @@ noteRetrieve storeHandle nId = do
                     _ -> Nothing
   return maybeNote
 
--- Add tags to the database.
+-- | Add tags to the database.
 tagsAdd :: StoreHandle -> [Tag] -> IO ()
 tagsAdd storeHandle = mapM_ tagAdd
   where tagAdd tag = execute storeHandle "REPLACE INTO TAGS (ID, NAME) VALUES\
                                          \ ((SELECT ID FROM TAGS WHERE NAME=?), ?)"
                        (tag, tag)
 
--- Associate given tags with the given NoteID.
+-- | Associates given tags with the given 'NoteID'.
 noteTagsAdd :: StoreHandle -> NoteID -> [Tag] -> IO ()
 noteTagsAdd storeHandle nId = mapM_ noteTagAdd
   where noteTagAdd :: Tag -> IO ()
@@ -307,7 +341,7 @@ noteTagsAdd storeHandle nId = mapM_ noteTagAdd
           execute storeHandle "INSERT INTO NOTETAGS (NOTE, TAG) VALUES \
                               \ (?, (SELECT ID FROM TAGS WHERE NAME=?));" (nId, tag)
 
--- Add a new Note to the database. The metadata field in Note will be
+-- | Adds a new note to the database. The metadata fields in note will be
 -- ignored.
 noteAdd :: Note -> StoreHandle -> IO ()
 noteAdd note storeHandle = do
@@ -317,7 +351,7 @@ noteAdd note storeHandle = do
   tagsAdd storeHandle (noteTags note)
   noteTagsAdd storeHandle (toInteger noteId) (noteTags note)
 
--- Update a note. Note must contain a valid NoteID.
+-- | Updates a note; the note must contain a valid 'NoteID'.
 noteUpdate :: StoreHandle -> Note -> IO ()
 noteUpdate storeHandle note = do
   -- FIXME: Exception, if no noteID!
@@ -325,43 +359,46 @@ noteUpdate storeHandle note = do
     (noteTitle note, noteBody note, noteID note)
   tagsAdd storeHandle (noteTags note)
   updateTags (fromJust (noteID note)) (noteTags note)
-
   where updateTags :: NoteID -> [Tag] -> IO ()
         updateTags nId tags = do
           execute storeHandle "DELETE FROM NOTETAGS WHERE NOTE=?;" (Only nId)
           noteTagsAdd storeHandle nId tags
 
--- Compute the directory containing the database stores.
+-- | Computes the directory containing the database stores.
 storeDirectoryName :: IO String
 storeDirectoryName = do
   home <- getEnv "HOME"
   return $ home </> storeDirectory
 
--- Compute the database store filename for a given store name.
-storeFileName :: String -> IO String
+-- | Computes the database store filename for a given store name.
+storeFileName :: StoreName -> IO String
 storeFileName storeName = do
   storeDir <- storeDirectoryName
   return $ storeDir </> storeName ++ "." ++ storeSuffix
 
+-- | Initializes a new store for the given store name.
 noteStoreInitialize :: String -> IO ()
 noteStoreInitialize storeFile = do
   _ <- execProcess sqliteExecutable [storeFile] sqliteStoreTableDef -- FIXME, error checking
   return ()
 
+-- | Given a search pattern, retrieve the list of those notes matching
+-- that search pattern.
 noteSearch :: String -> StoreHandle -> IO [Note]
 noteSearch pattern storeHandle = do
   let pattern' = "%" ++ pattern ++ "%"
   noteList storeHandle (Just pattern')
 
--- Convert list of tags into String representation.
+-- | Converts list of 'Tag's into its string representation.
 packTags :: [Tag] -> String
 packTags = intercalate ", "
 
--- Convert String representation of a Tags list into a list of Tags.
+-- | Converts the string representation of a tags list into a list of
+-- 'Tag's.
 unpackTags :: String -> [Tag]
 unpackTags = filter (/= "") . map strip . split ","
 
--- Convert a Note into String representation.
+-- | Converts a 'Note' into its string representation.
 noteToString :: Note -> String
 noteToString note =
   noteTitle note ++ "\n"
@@ -369,7 +406,7 @@ noteToString note =
     ++ nokeeStringDelimiter ++ "\n"
     ++ (unlines . lines . noteBody) note
 
--- Convert the String representation of a Note into a Note.
+-- | Converts the String representation of a note into a 'Note'.
 stringToNote :: String -> Maybe Note
 stringToNote string =
   let stringLines = lines string
@@ -384,6 +421,9 @@ stringToNote string =
                                    else Nothing
        _ -> Nothing
 
+-- | Retrieves a list of notes. If a search pattern is specified,
+-- retrieve only those notes matching the search pattern, otherwise
+-- return all notes in the active store.
 noteList :: StoreHandle -> Maybe String -> IO [Note]
 noteList storeHandle maybePattern = do
   dbnotes <- case maybePattern of
@@ -401,12 +441,15 @@ noteList storeHandle maybePattern = do
                       , noteCTime = Just (dbnoteCTime dbnote)
                       , noteMTime = Just (dbnoteMTime dbnote) }
 
+-- | Retrieves the list of those tags which are referenced by at least
+-- one note.
 retrieveReferencedTags :: StoreHandle -> IO [Tag]
 retrieveReferencedTags storeHandle = do
   tags <- query_ storeHandle "SELECT TAGS.NAME FROM TAGS INNER JOIN NOTETAGS \
                              \ON TAGS.ID = NOTETAGS.TAG;" :: IO [[String]]
   return $ nubSort (map head tags)
 
+-- | Produces a summary string given a list of notes.
 notesPrintSummary :: [Note] -> String
 notesPrintSummary notes =
   let idMax = length $ show (maximum (mapMaybe noteID notes))
@@ -420,13 +463,17 @@ notesPrintSummary notes =
           in pad nId ++ nId ++ " " ++ cTime ++ " " ++ noteTitle note
           where pad n = replicate (padding - length n) ' '
 
+-- | Delete a note from the database given its 'NoteID'.
 noteDelete :: NoteID -> StoreHandle -> IO ()
 noteDelete nId storeHandle = do
   execute storeHandle "DELETE FROM NOTES WHERE ID=?;" (Only nId)
   execute storeHandle "DELETE FROM NOTETAGS WHERE NOTE=?;" (Only nId)
 
--- Wraps the IO action in a transaction.
-nokeeWithStore :: StoreName -> (StoreHandle -> IO a) -> IO a
+-- | Wraps the IO action in a database transaction.
+nokeeWithStore :: StoreName             -- ^ The name of the store to use
+               -> (StoreHandle -> IO a) -- ^ The IO action to run for
+                                        -- the specified store
+               -> IO a                  -- ^ Returns the resulting IO action
 nokeeWithStore storeName f = do
   -- FIXME, what about exceptions?
   storeFile <- storeFileName storeName

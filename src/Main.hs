@@ -1,22 +1,40 @@
 -- Nokee (Note Keeper).
 -- Copyright (C) 2015 Moritz Schulte <mtesseract@silverratio.net>
 
-module Main where
+{-|
+Module      : Main
+Description : Module implementing the Nokee CLI interface.
+Copyright   : (C) 2015 Moritz Schulte
+License     : BSD3
+Maintainer  : Moritz Schulte <mtesseract@silverratio.net>
+Stability   : experimental
+Portability : POSIX
+-}
 
-import Options.Applicative
+module Main (main) where
+
 import Control.Exception
+import Control.Monad
 import Data.Typeable
+import Data.Version
 import Nokee
+import Options.Applicative
+import Paths_Nokee
+import System.Exit
 
 ---------------------
 -- Nokee constants --
 ---------------------
+
+-- | The name of the program.
 programName :: String
-programName = "nokee"
+programName = "Nokee"
 
+-- | The version of the program.
 programVersion :: String
-programVersion = "0.1-git"
+programVersion = showVersion version
 
+-- | Short description of the program.
 programDescription :: String
 programDescription = "(Simple & Stupid) Note Manager"
 
@@ -24,53 +42,68 @@ programDescription = "(Simple & Stupid) Note Manager"
 -- Define Nokee exceptions --
 -----------------------------
 
-data NokeeException = ExceptionString String | ExceptionNone
-    deriving (Show, Typeable)
+-- | Exception type used in Nokee.
+data NokeeException =
+  ExceptionNone -- ^ Exception value representing no exception
+  | ExceptionString String -- ^ Exception value holding an error
+                           -- message
+  deriving (Show, Typeable)
 
+-- | A 'NokeeException' is an 'Exception'.
 instance Exception NokeeException
 
--- This gets called after arguments have been parsed. This function is
--- just a wrapper around the function 'nokee', adding exception
--- handling.
+-- | This function is just a wrapper around the function 'nokee', adding
+-- exception handling. It gets called after arguments have been
+-- parsed.
 main' :: NokeeOptions -> IO ()
 main' opts =
   catch (nokee opts)
         (\ e -> case (e :: NokeeException) of
-                  ExceptionString s -> putStrLn $ "Error: " ++ s
+                  ExceptionString s -> do putStrLn $ "Error: " ++ s
+                                          exitFailure
                   ExceptionNone     -> return ())
 
--- Implements the main program logic. May throw NokeeExceptions, they
--- will be handled in the caller.
+-- | Print version information to stdout.
+printVersion :: IO ()
+printVersion = putStrLn $ programName ++ " " ++ programVersion
+
+-- | This function implements the main program logic. May throw
+-- NokeeExceptions, they will be handled in the caller.
 nokee :: NokeeOptions -> IO ()
 nokee opts = do
   let store = optsStore opts
+  when (optsVersion opts) $ do
+    printVersion
+    throw ExceptionNone
   case optsCommand opts of
-    InitOptions ->
+    Just InitOptions ->
       cmdNoteInit store
-    EditOptions nId ->
+    Just (EditOptions nId) ->
       nokeeWithStore store $ cmdNoteEdit nId
-    DeleteOptions nId ->
+    Just (DeleteOptions nId) ->
       nokeeWithStore store $ cmdNoteDelete nId
-    AddOptions ->
+    Just AddOptions ->
       nokeeWithStore store cmdNoteAdd
-    ListOptions tags ->
+    Just (ListOptions tags) ->
       nokeeWithStore store (cmdNoteList tags)
-    ListStoreOptions ->
+    Just ListStoreOptions ->
       cmdNoteListStores
-    ListTagsOptions ->
+    Just ListTagsOptions ->
       nokeeWithStore store cmdNoteListTags
-    SearchOptions pattern ->
+    Just (SearchOptions pattern) ->
       nokeeWithStore store $ cmdNoteSearch pattern
-    RetrieveOptions nId ->
+    Just (RetrieveOptions nId) ->
       nokeeWithStore store $ cmdNoteRetrieve nId
+    Nothing ->
+      throw (ExceptionString "No command specified -- what should I do? Try --help.")
 
--- This type holds the information about parsed arguments.
+-- | Type holding the information about parsed arguments.
 data NokeeOptions = NokeeOptions
   { optsVersion :: Bool
   , optsStore   :: String
-  , optsCommand :: Command }
+  , optsCommand :: Maybe Command }
 
--- Type for storing information about the parsed commands.
+-- | Type for storing information about the parsed commands.
 data Command
   = RetrieveOptions Integer
   | AddOptions
@@ -82,7 +115,7 @@ data Command
   | ListStoreOptions
   | ListTagsOptions
 
--- The Nokee argument parser.
+-- | The Nokee main argument parser.
 nokeeOptions :: Parser NokeeOptions
 nokeeOptions = NokeeOptions
      <$> switch
@@ -94,26 +127,25 @@ nokeeOptions = NokeeOptions
           <> short 's'
           <> metavar "STORENAME"
           <> help "Specify store to use")
-     <*> subparser
-         (command "edit" (info editOptions
-                          (progDesc "Edit a note"))
-          <> command "add" (info addOptions
-                             (progDesc "Add a note"))
-          <> command "delete" (info deleteOptions
-                             (progDesc "Delete a note"))
-          <> command "list" (info listOptions
-                             (progDesc "List notes"))
-          <> command "list-stores" (info listStoresOptions
-                             (progDesc "List Stores"))
-          <> command "list-tags" (info listTagsOptions
-                                  (progDesc "List Tags"))
-          <> command "init" (info initOptions
-                             (progDesc "Initialize store"))
-          <> command "search" (info searchOptions
-                             (progDesc "Search notes"))
-          <> command "retrieve" (info retrieveOptions
-                             (progDesc "Retrieve a note")))
-
+     <*> (optional $ subparser
+           (command "edit" (info editOptions
+                             (progDesc "Edit a note"))
+            <> command "add" (info addOptions
+                               (progDesc "Add a note"))
+            <> command "delete" (info deleteOptions
+                                  (progDesc "Delete a note"))
+            <> command "list" (info listOptions
+                                (progDesc "List notes"))
+            <> command "list-stores" (info listStoresOptions
+                                       (progDesc "List Stores"))
+            <> command "list-tags" (info listTagsOptions
+                                     (progDesc "List Tags"))
+            <> command "init" (info initOptions
+                                (progDesc "Initialize store"))
+            <> command "search" (info searchOptions
+                                  (progDesc "Search notes"))
+            <> command "retrieve" (info retrieveOptions
+                                    (progDesc "Retrieve a note"))))
   where initOptions       = pure InitOptions
         addOptions        = pure AddOptions
         listOptions       = ListOptions <$> strOption (value ""
@@ -128,7 +160,7 @@ nokeeOptions = NokeeOptions
         searchOptions     = SearchOptions   <$> argument str  (metavar "PATTERN")
         retrieveOptions   = RetrieveOptions <$> argument auto (metavar "ID")
 
--- Main entry point. This parses arguments and passes the parsed
+-- | Main entry point. This parses arguments and passes the parsed
 -- arguments to main'.
 main :: IO ()
 main = execParser opts >>= main'
