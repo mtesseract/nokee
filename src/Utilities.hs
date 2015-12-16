@@ -11,7 +11,12 @@ Stability   : experimental
 Portability : POSIX
 -}
 
-module Utilities where
+module Utilities ( EditorSpec(..)
+                 , execProcess
+                 , execEditor
+                 , listIntersection
+                 , nubSort 
+                 ) where
 
 import Data.Maybe
 import System.Environment
@@ -37,14 +42,15 @@ execProcess cmd args input = do
   hClose inHandle
   waitForProcess pHandle
 
+data EditorSpec = EditorSpec [String] String
+
 -- | Spawns an editor, opening the specified filename.
-execEditor :: String      -- ^ The default editor command to use in
-                          -- case the environemnt variable EDITOR is
-                          -- not set
+execEditor :: EditorSpec  -- ^ The editor specification
            -> String      -- ^ The name of the file to open
            -> IO ExitCode -- ^ The exit code returned by the editor
-execEditor defaultEditor filename = do
-  editor <- fromMaybe defaultEditor <$> lookupEnv "EDITOR"
+execEditor (EditorSpec editorEnv defaultEditor) filename = do
+  maybeEditors <- mapM lookupEnv editorEnv
+  let editor = (fromMaybe defaultEditor . listToMaybe . catMaybes) maybeEditors
   rawSystem editor [filename]
 
 -- | Forms the intersection list of two lists, i.e. the list of those

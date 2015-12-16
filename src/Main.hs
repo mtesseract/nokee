@@ -15,11 +15,12 @@ module Main (main) where
 
 import Control.Exception
 import Control.Monad
-import Data.Typeable
+import Data.Maybe
 import Data.Version
 import Nokee
 import Options.Applicative
 import Paths_Nokee
+import System.Environment
 import System.Exit
 
 ---------------------
@@ -38,20 +39,6 @@ programVersion = showVersion version
 programDescription :: String
 programDescription = "(Simple & Stupid) Note Manager"
 
------------------------------
--- Define Nokee exceptions --
------------------------------
-
--- | Exception type used in Nokee.
-data NokeeException =
-  ExceptionNone -- ^ Exception value representing no exception
-  | ExceptionString String -- ^ Exception value holding an error
-                           -- message
-  deriving (Show, Typeable)
-
--- | A 'NokeeException' is an 'Exception'.
-instance Exception NokeeException
-
 -- | This function is just a wrapper around the function 'nokee', adding
 -- exception handling. It gets called after arguments have been
 -- parsed.
@@ -59,48 +46,58 @@ main' :: NokeeOptions -> IO ()
 main' opts =
   catch (nokee opts)
         (\ e -> case (e :: NokeeException) of
-                  ExceptionString s -> do putStrLn $ "Error: " ++ s
-                                          exitFailure
-                  ExceptionNone     -> return ())
+                  NokeeExceptionString s -> do putStrLn $ "Error: " ++ s
+                                               exitFailure
+                  NokeeExceptionNone     -> return ())
 
 -- | Print version information to stdout.
 printVersion :: IO ()
 printVersion = putStrLn $ programName ++ " " ++ programVersion
 
+environmentStore :: IO (Maybe String)
+environmentStore = lookupEnv "NOKEESTORE"
+
 -- | This function implements the main program logic. May throw
 -- NokeeExceptions, they will be handled in the caller.
 nokee :: NokeeOptions -> IO ()
 nokee opts = do
-  let store = optsStore opts
+  -- Implement --version.
   when (optsVersion opts) $ do
     printVersion
-    throw ExceptionNone
+    throw NokeeExceptionNone
+  -- Figure out which store to use.
+  maybeStore <- do envStore <- environmentStore
+                   -- Regard empty variable as unset.
+                   let envStore' = if envStore == Just "" then Nothing else envStore
+                   return $ optsStore opts <|> envStore'
+  let store = fromMaybe "default" maybeStore
+  -- Command Dispatcher.
   case optsCommand opts of
     Just InitOptions ->
       cmdNoteInit store
     Just (EditOptions nId) ->
-      nokeeWithStore store $ cmdNoteEdit nId
+      nokeeWithStore store False $ cmdNoteEdit nId
     Just (DeleteOptions nId) ->
-      nokeeWithStore store $ cmdNoteDelete nId
+      nokeeWithStore store False $ cmdNoteDelete nId
     Just AddOptions ->
-      nokeeWithStore store cmdNoteAdd
+      nokeeWithStore store False cmdNoteAdd
     Just (ListOptions tags) ->
-      nokeeWithStore store (cmdNoteList tags)
+      nokeeWithStore store False (cmdNoteList tags)
     Just ListStoreOptions ->
       cmdNoteListStores
     Just ListTagsOptions ->
-      nokeeWithStore store cmdNoteListTags
+      nokeeWithStore store False cmdNoteListTags
     Just (SearchOptions pattern) ->
-      nokeeWithStore store $ cmdNoteSearch pattern
+      nokeeWithStore store False $ cmdNoteSearch pattern
     Just (RetrieveOptions nId) ->
-      nokeeWithStore store $ cmdNoteRetrieve nId
+      nokeeWithStore store False $ cmdNoteRetrieve nId
     Nothing ->
-      throw (ExceptionString "No command specified -- what should I do? Try --help.")
+      throw (NokeeExceptionString "No command specified -- what should I do? Try --help.")
 
 -- | Type holding the information about parsed arguments.
 data NokeeOptions = NokeeOptions
   { optsVersion :: Bool
-  , optsStore   :: String
+  , optsStore   :: Maybe String
   , optsCommand :: Maybe Command }
 
 -- | Type for storing information about the parsed commands.
@@ -121,12 +118,11 @@ nokeeOptions = NokeeOptions
      <$> switch
          (long "version"
           <> help "Display version information")
-     <*> strOption
-         (value "default"
-          <> long "store"
-          <> short 's'
-          <> metavar "STORENAME"
-          <> help "Specify store to use")
+     <*> (optional $ strOption
+           (long "store"
+            <> short 's'
+            <> metavar "STORENAME"
+            <> help "Specify store to use"))
      <*> (optional $ subparser
            (command "edit" (info editOptions
                              (progDesc "Edit a note"))

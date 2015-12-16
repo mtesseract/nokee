@@ -16,6 +16,7 @@ Portability : POSIX
 module Nokee (StoreName,
               StoreHandle,
               NoteID,
+              NokeeException(..),
               cmdNoteAdd,
               cmdNoteDelete,
               cmdNoteRetrieve,
@@ -43,6 +44,23 @@ import System.IO
 import System.IO.Temp
 import Text.Regex.TDFA
 import Utilities
+import Data.Typeable
+import Control.Exception
+
+-----------------------------
+-- Define Nokee exceptions --
+-----------------------------
+
+-- | Exception type used in Nokee.
+data NokeeException =
+  NokeeExceptionNone            -- ^ Exception value representing no
+                                -- exception
+  | NokeeExceptionString String -- ^ Exception value holding an error
+                                -- message
+  deriving (Show, Typeable)
+
+-- | A 'NokeeException' is an 'Exception'.
+instance Exception NokeeException
 
 ---------------
 -- Constants --
@@ -93,9 +111,13 @@ nokeeStringDelimiter = ""
 defaultEditor :: String
 defaultEditor = "emacs"
 
+editorEnvironment :: [String]
+editorEnvironment = ["NOKEEEDITOR", "EDITOR"]
+
 -- | Opens the specified file in the editor, returning an ExitCode.
 editor :: String -> IO ExitCode
-editor = execEditor defaultEditor
+editor = execEditor editorSpec
+  where editorSpec = EditorSpec editorEnvironment defaultEditor
 
 ----------------
 -- Data Types --
@@ -147,12 +169,12 @@ instance FromRow DBNote where
 cmdNoteAdd :: StoreHandle -> IO ()
 cmdNoteAdd storeHandle =
   withSystemTempFile tmpfileTemplate
-    (\ filename handle -> do
+    (\ fName fHandle -> do
         storeEmpty <- isEmptyStore
         when storeEmpty $
-          hPutStr handle (noteToString helperNote)
-        hClose handle
-        cmdNoteAdd' filename)
+          hPutStr fHandle (noteToString helperNote)
+        hClose fHandle
+        cmdNoteAdd' fName)
 
   where cmdNoteAdd' :: String -> IO ()
         cmdNoteAdd' filename = do
@@ -211,11 +233,11 @@ cmdNoteRetrieve nId storeHandle = do
 cmdNoteEdit :: NoteID -> StoreHandle -> IO ()
 cmdNoteEdit nId storeHandle =
   withSystemTempFile tmpfileTemplate
-    (\ filename handle -> do
+    (\ filename fHandle -> do
         maybeNote <- noteRetrieve storeHandle nId
         case maybeNote of
-          Just note -> do hPutStr handle (noteToString note)
-                          hClose handle -- from now on we only work with the path.
+          Just note -> do hPutStr fHandle (noteToString note)
+                          hClose fHandle -- from now on we only work with the path.
                           cmdNoteUpdate' filename
           Nothing -> putStrLn "Note not found.") -- exception?
 
@@ -471,11 +493,17 @@ noteDelete nId storeHandle = do
 
 -- | Wraps the IO action in a database transaction.
 nokeeWithStore :: StoreName             -- ^ The name of the store to use
+               -> Bool                  -- ^ True, if the store shall
+                                        -- be created in case it does
+                                        -- not exist yet.
                -> (StoreHandle -> IO a) -- ^ The IO action to run for
                                         -- the specified store
                -> IO a                  -- ^ Returns the resulting IO action
-nokeeWithStore storeName f = do
+nokeeWithStore storeName createStore f = do
   -- FIXME, what about exceptions?
   storeFile <- storeFileName storeName
+  storeExists <- doesFileExist storeFile
+  when (not createStore && not storeExists) $
+    throw (NokeeExceptionString "Store does not exist")
   storeHandle <- open storeFile
   withTransaction storeHandle (f storeHandle)
