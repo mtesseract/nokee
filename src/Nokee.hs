@@ -171,26 +171,23 @@ type NokeeEnv = StoreHandle
 nokeeQuery_ :: FromRow r => Query -> ReaderT NokeeEnv IO [r]
 nokeeQuery_ quer = do
   conn <- ask
-  res <- liftIO $ query_ conn quer
-  return res
+  liftIO $ query_ conn quer
 
 nokeeQuery :: (ToRow q, FromRow r) => Query -> q -> ReaderT NokeeEnv IO [r]
 nokeeQuery quer q = do
   conn <- ask
-  res <- liftIO $ query conn quer q
-  return res
+  liftIO $ query conn quer q
 
 nokeeExecute :: ToRow q => Query -> q -> ReaderT NokeeEnv IO ()
 nokeeExecute quer q = do
   conn <- ask
-  liftIO $ execute conn quer q >>= return
+  liftIO $ execute conn quer q
 
 nokeeLastInsertRowId :: ReaderT NokeeEnv IO GHC.Int.Int64
 --nokeeLastInsertRowId = ask >>= (return . lastInsertRowId)
 nokeeLastInsertRowId = do
   conn <- ask
-  rowId <- liftIO $ lastInsertRowId conn
-  return rowId
+  liftIO $ lastInsertRowId conn
   
 
 --------------------------
@@ -310,9 +307,9 @@ cmdNoteListStores = do
         filterFiles fname = fname =~ ("\\." ++ storeSuffix ++ "$") :: Bool
 
         removeSuffix :: String -> Maybe String
-        removeSuffix s = let pattern = "^(.+)\\.db$" :: String
+        removeSuffix s = let patt = "^(.+)\\.db$" :: String
                              matches :: [[String]]
-                             matches = s =~ pattern
+                             matches = s =~ patt
                          in case matches of
                               ([_, name]:_) -> Just name
                               _ -> Nothing
@@ -327,8 +324,8 @@ cmdNoteListTags = retrieveReferencedTags >>= mapM_ (liftIO . putStrLn)
 -- notes which match the specified pattern.
 cmdNoteSearch :: String -- ^ The search pattern
               -> ReaderT NokeeEnv IO ()
-cmdNoteSearch pattern = do
-  notes <- noteSearch pattern
+cmdNoteSearch patt = do
+  notes <- noteSearch patt
   liftIO $ putStr $ notesPrintSummary notes
 
 -- | Implementation of the command init: Initialize a store with the
@@ -391,7 +388,7 @@ tagsAdd = mapM_ tagAdd
 noteTagsAdd :: NoteID -> [Tag] -> ReaderT NokeeEnv IO ()
 noteTagsAdd nId = mapM_ noteTagAdd
   where noteTagAdd :: Tag -> ReaderT NokeeEnv IO ()
-        noteTagAdd tag = do
+        noteTagAdd tag =
           nokeeExecute "INSERT INTO NOTETAGS (NOTE, TAG) VALUES \
                        \ (?, (SELECT ID FROM TAGS WHERE NAME=?));" (nId, tag)
 
@@ -439,9 +436,9 @@ noteStoreInitialize storeFile = do
 -- | Given a search pattern, retrieve the list of those notes matching
 -- that search pattern.
 noteSearch :: String -> ReaderT NokeeEnv IO [Note]
-noteSearch pattern = do
-  let pattern' = "%" ++ pattern ++ "%"
-  noteList (Just pattern')
+noteSearch patt = do
+  let patt' = "%" ++ patt ++ "%"
+  noteList (Just patt')
 
 -- | Converts list of 'Tag's into its string representation.
 packTags :: [Tag] -> String
@@ -479,8 +476,8 @@ stringToNote string =
 -- retrieve only those notes matching the search pattern, otherwise
 -- return all notes in the active store.
 noteList :: Maybe String -> ReaderT NokeeEnv IO [Note]
-noteList maybePattern = do
-  dbnotes <- (case maybePattern of
+noteList maybePatt = do
+  dbnotes <- (case maybePatt of
                 Just p -> nokeeQuery "SELECT * FROM NOTES WHERE \
                                      \TITLE LIKE ? OR BODY LIKE ?;" (p, p)
                 _      -> nokeeQuery_ "SELECT ID, TITLE, BODY, CTIME, MTIME \
@@ -514,7 +511,7 @@ notesPrintSummary notes =
         notePrintSummary note padding =
           let nId   = maybe "0" show (noteID note)
               cTime = fromMaybe "                   "
-                                (formatTime defaultTimeLocale "%F %R" <$> (noteCTime note))
+                                (formatTime defaultTimeLocale "%F %R" <$> noteCTime note)
           in pad nId ++ nId ++ " " ++ cTime ++ " " ++ noteTitle note
           where pad n = replicate (padding - length n) ' '
 
@@ -528,7 +525,7 @@ nokeeRunCommand :: StoreName             -- ^ The name of the store to use
                -> Bool                  -- ^ True, if the store shall
                                         -- be created in case it does
                                         -- not exist yet.
-               -> (ReaderT NokeeEnv IO a) -- ^ The IO action to run for
+               -> ReaderT NokeeEnv IO a -- ^ The IO action to run for
                                         -- the specified store
                -> IO a                  -- ^ Returns the resulting IO action
 nokeeRunCommand storeName createStore f = do

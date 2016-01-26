@@ -87,8 +87,8 @@ nokee opts = do
       cmdNoteListStores
     Just ListTagsOptions ->
       nokeeRunCommand store False cmdNoteListTags
-    Just (SearchOptions pattern) ->
-      nokeeRunCommand store False $ cmdNoteSearch pattern
+    Just (SearchOptions patt) ->
+      nokeeRunCommand store False $ cmdNoteSearch patt
     Just (RetrieveOptions nId) ->
       nokeeRunCommand store False $ cmdNoteRetrieve nId
     Nothing ->
@@ -118,30 +118,32 @@ nokeeOptions = NokeeOptions
      <$> switch
          (long "version"
           <> help "Display version information")
-     <*> (optional $ strOption
-           (long "store"
-            <> short 's'
-            <> metavar "STORENAME"
-            <> help "Specify store to use"))
-     <*> (optional $ subparser
-           (command "edit" (info editOptions
-                             (progDesc "Edit a note"))
-            <> command "add" (info addOptions
-                               (progDesc "Add a note"))
-            <> command "delete" (info deleteOptions
-                                  (progDesc "Delete a note"))
-            <> command "list" (info listOptions
-                                (progDesc "List notes"))
-            <> command "list-stores" (info listStoresOptions
-                                       (progDesc "List Stores"))
-            <> command "list-tags" (info listTagsOptions
-                                     (progDesc "List Tags"))
-            <> command "init" (info initOptions
-                                (progDesc "Initialize store"))
-            <> command "search" (info searchOptions
-                                  (progDesc "Search notes"))
-            <> command "retrieve" (info retrieveOptions
-                                    (progDesc "Retrieve a note"))))
+     <*> optional
+           (strOption
+             (long "store"
+              <> short 's'
+              <> metavar "STORENAME"
+              <> help "Specify store to use"))
+     <*> optional
+           (subparser
+             (command "edit" (info editOptions
+                              (progDesc "Edit a note"))
+              <> command "add" (info addOptions
+                                (progDesc "Add a note"))
+              <> command "delete" (info deleteOptions
+                                   (progDesc "Delete a note"))
+              <> command "list" (info listOptions
+                                 (progDesc "List notes"))
+              <> command "list-stores" (info listStoresOptions
+                                        (progDesc "List Stores"))
+              <> command "list-tags" (info listTagsOptions
+                                      (progDesc "List Tags"))
+              <> command "init" (info initOptions
+                                 (progDesc "Initialize store"))
+              <> command "search" (info searchOptions
+                                   (progDesc "Search notes"))
+              <> command "retrieve" (info retrieveOptions
+                                     (progDesc "Retrieve a note"))))
   where initOptions       = pure InitOptions
         addOptions        = pure AddOptions
         listOptions       = ListOptions <$> strOption (value ""
