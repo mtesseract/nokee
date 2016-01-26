@@ -76,21 +76,21 @@ nokee opts = do
     Just InitOptions ->
       cmdNoteInit store
     Just (EditOptions nId) ->
-      nokeeWithStore store False $ cmdNoteEdit nId
+      nokeeRunCommand store False $ cmdNoteEdit nId
     Just (DeleteOptions nId) ->
-      nokeeWithStore store False $ cmdNoteDelete nId
+      nokeeRunCommand store False $ cmdNoteDelete nId
     Just AddOptions ->
-      nokeeWithStore store False cmdNoteAdd
+      nokeeRunCommand store False cmdNoteAdd
     Just (ListOptions tags) ->
-      nokeeWithStore store False (cmdNoteList tags)
+      nokeeRunCommand store False (cmdNoteList tags)
     Just ListStoreOptions ->
       cmdNoteListStores
     Just ListTagsOptions ->
-      nokeeWithStore store False cmdNoteListTags
+      nokeeRunCommand store False cmdNoteListTags
     Just (SearchOptions pattern) ->
-      nokeeWithStore store False $ cmdNoteSearch pattern
+      nokeeRunCommand store False $ cmdNoteSearch pattern
     Just (RetrieveOptions nId) ->
-      nokeeWithStore store False $ cmdNoteRetrieve nId
+      nokeeRunCommand store False $ cmdNoteRetrieve nId
     Nothing ->
       throw (NokeeExceptionString "No command specified -- what should I do? Try --help.")
 
