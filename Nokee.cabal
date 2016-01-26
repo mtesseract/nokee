@@ -21,14 +21,15 @@ executable nokee
                      , base >= 4.7 && < 5
                      , directory >= 1.2.2.0
                      , filepath >= 1.4.0.0
+                     , mtl >= 2.2.1
                      , optparse-applicative >= 0.11.0.2
                      , process >= 1.2.3.0
+                     , regex-tdfa >= 1.2.1
                      , sqlite-simple
                      , temporary >= 1.2.0.3
                      , time >= 1.5.0.1
-                     , unix >= 2.7.1.0
-                     , regex-tdfa >= 1.2.1
                      , time >= 1.5.0.1
+                     , unix >= 2.7.1.0
   other-modules:       Nokee
                      , Utilities
                      , Paths_Nokee
