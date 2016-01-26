@@ -4,7 +4,7 @@
 {-|
 Module      : Main
 Description : Module implementing the Nokee CLI interface.
-Copyright   : (C) 2015 Moritz Schulte
+Copyright   : (C) 2015-2016 Moritz Schulte
 License     : BSD3
 Maintainer  : Moritz Schulte <mtesseract@silverratio.net>
 Stability   : experimental

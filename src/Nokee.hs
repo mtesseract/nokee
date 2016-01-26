@@ -6,7 +6,7 @@
 {-|
 Module      : Nokee
 Description : Module implementing the Nokee core functionality.
-Copyright   : (C) 2015 Moritz Schulte
+Copyright   : (C) 2015-2016 Moritz Schulte
 License     : BSD3
 Maintainer  : Moritz Schulte <mtesseract@silverratio.net>
 Stability   : experimental
@@ -162,33 +162,50 @@ data DBNote = DBNote { dbnoteID    :: NoteID
 instance FromRow DBNote where
   fromRow = DBNote <$> field <*> field <*> field <*> field <*> field
 
--------------------------
--- ReaderT Abstraction --
--------------------------
+------------------------------------------
+-- Reader Monad Transformer Abstraction --
+------------------------------------------
 
-type NokeeEnv = StoreHandle
+-- | A computation of type 'NokeeIO a' is a ReaderT reading from an
+-- environment of type NokeeEnv and producing a value of type 'a' in
+-- the IO monad.
+type NokeeIO a = ReaderT NokeeEnv IO a
 
-nokeeQuery_ :: FromRow r => Query -> ReaderT NokeeEnv IO [r]
+-- | Definition of the NokeeEnv type. So far it only contains a
+-- StoreHandle.
+data NokeeEnv = NokeeEnv { nokeeEnvStoreHandle :: StoreHandle }
+
+-- | Wrapper for SQLite's query_ based on NokeeIO.
+nokeeQuery_ :: FromRow r => Query -> NokeeIO [r]
 nokeeQuery_ quer = do
-  conn <- ask
+  conn <- nokeeEnvStoreHandle <$> ask
   liftIO $ query_ conn quer
 
-nokeeQuery :: (ToRow q, FromRow r) => Query -> q -> ReaderT NokeeEnv IO [r]
+-- | Wrapper for SQLite's query based on NokeeIO.
+nokeeQuery :: (ToRow q, FromRow r) => Query -> q -> NokeeIO [r]
 nokeeQuery quer q = do
-  conn <- ask
+  conn <- nokeeEnvStoreHandle <$> ask
   liftIO $ query conn quer q
 
-nokeeExecute :: ToRow q => Query -> q -> ReaderT NokeeEnv IO ()
+-- | Wrapper for SQLite's execute based on NokeeIO.
+nokeeExecute :: ToRow q => Query -> q -> NokeeIO ()
 nokeeExecute quer q = do
-  conn <- ask
+  conn <- nokeeEnvStoreHandle <$> ask
   liftIO $ execute conn quer q
 
-nokeeLastInsertRowId :: ReaderT NokeeEnv IO GHC.Int.Int64
---nokeeLastInsertRowId = ask >>= (return . lastInsertRowId)
+-- | Wrapper for SQLite's lastInsertRowId based on NokeeIO.
+nokeeLastInsertRowId :: NokeeIO GHC.Int.Int64
 nokeeLastInsertRowId = do
-  conn <- ask
+  conn <- nokeeEnvStoreHandle <$> ask
   liftIO $ lastInsertRowId conn
-  
+
+-- | Wrapper for putStr.
+nokeePutStr :: String -> NokeeIO ()
+nokeePutStr = liftIO . putStr
+
+-- | Wrapper for putStrLn.
+nokeePutStrLn :: String -> NokeeIO ()
+nokeePutStrLn = liftIO . putStrLn
 
 --------------------------
 -- High Level Interface --
@@ -196,30 +213,30 @@ nokeeLastInsertRowId = do
 
 -- | Implementation of the command add: Spawns an editor, lets user edit
 -- a new note and then adds the new note to the database.
-cmdNoteAdd :: ReaderT NokeeEnv IO ()
+cmdNoteAdd :: NokeeIO ()
 cmdNoteAdd =
   withSystemTempFile tmpfileTemplate
     (\ fName fHandle -> do
         storeEmpty <- isEmptyStore
-        liftIO $ when storeEmpty $
-                   hPutStr fHandle (noteToString helperNote)
-        liftIO $ hClose fHandle
+        liftIO $ do when storeEmpty $
+                      hPutStr fHandle (noteToString helperNote)
+                    hClose fHandle
         cmdNoteAdd' fName)
 
-  where cmdNoteAdd' :: String -> ReaderT NokeeEnv IO ()
+  where cmdNoteAdd' :: String -> NokeeIO ()
         cmdNoteAdd' filename = do
           _ <- liftIO $ editor filename
           -- FIXME: exception.
           contents <- liftIO $ readFile filename
           if (null . strip) contents
-             then liftIO $ putStrLn "Empty note file, aborting."
+             then nokeePutStrLn "Empty note file, aborting."
              else case stringToNote contents of
                     Just note -> noteAdd note
                     Nothing -> cmdNoteAdd' filename
 
-        isEmptyStore :: ReaderT NokeeEnv IO Bool
+        isEmptyStore :: NokeeIO Bool
         isEmptyStore = do
-          rows <- nokeeQuery_ "SELECT ID FROM NOTES;" :: ReaderT NokeeEnv IO [[Integer]]
+          rows <- nokeeQuery_ "SELECT ID FROM NOTES;" :: NokeeIO [[Integer]]
           return $ null rows
 
         helperNote :: Note
@@ -244,32 +261,32 @@ cmdNoteAdd =
 
 -- | Implementation of the command delete: Removes a note given its
 -- 'NoteID'.
-cmdNoteDelete :: NoteID -> ReaderT NokeeEnv IO ()
+cmdNoteDelete :: NoteID -> NokeeIO ()
 cmdNoteDelete = noteDelete
 
 -- | Implementation of the command retrieve: Retrieves the note with
 -- the specified 'NoteID' and displays it on standard out.
-cmdNoteRetrieve :: NoteID -> ReaderT NokeeEnv IO ()
+cmdNoteRetrieve :: NoteID -> NokeeIO ()
 cmdNoteRetrieve nId = do
   maybeNote <- noteRetrieve nId
   case maybeNote of
-    Just note -> liftIO $ putStr (noteToString note)
-    Nothing -> liftIO $ putStr "Note not found."
+    Just note -> nokeePutStr (noteToString note)
+    Nothing   -> nokeePutStr "Note not found."
 
 -- | Implementation of the command edit: Retrieves the note with the
 -- specified 'NoteID' from the database, spawns an editor and lets the
 -- user edit the note. After editing, updates the note in the
 -- database.
-cmdNoteEdit :: NoteID -> ReaderT NokeeEnv IO ()
+cmdNoteEdit :: NoteID -> NokeeIO ()
 cmdNoteEdit nId =
   withSystemTempFile tmpfileTemplate
     (\ filename fHandle -> do
         maybeNote <- noteRetrieve nId
         case maybeNote of
-          Just note -> do liftIO $ hPutStr fHandle (noteToString note)
-                          liftIO $ hClose fHandle -- from now on we only work with the path.
+          Just note -> do liftIO $ do hPutStr fHandle (noteToString note)
+                                      hClose fHandle -- from now on we only work with the path.
                           cmdNoteUpdate' filename
-          Nothing -> liftIO $ putStrLn "Note not found.") -- exception?
+          Nothing -> nokeePutStrLn "Note not found.") -- exception?
 
   where cmdNoteUpdate' filename = do
           _ <- liftIO $ editor filename
@@ -282,14 +299,14 @@ cmdNoteEdit nId =
 -- | Implementation of the command list: Displays a summary of notes
 -- matching the given list of tags or all notes in the store if no
 -- tags are specified.
-cmdNoteList :: String -> ReaderT NokeeEnv IO ()
+cmdNoteList :: String -> NokeeIO ()
 cmdNoteList tagsStr = do
   let tags = unpackTags tagsStr
   notes <- noteList Nothing
   let notes' = if null tags
                then notes
                else filter (filterByTags tags) notes
-  liftIO $ putStr $ notesPrintSummary notes'
+  nokeePutStr $ notesPrintSummary notes'
   where filterByTags :: [Tag] -> Note -> Bool
         filterByTags tags note = not $ null (listIntersection tags (noteTags note))
 
@@ -317,16 +334,16 @@ cmdNoteListStores = do
 -- | Implementation of the command list-tags: Displays a sorted list of
 -- (referenced) tags. That is, tags which are contained in the
 -- database but not associated with any notes, will not be displayed.
-cmdNoteListTags :: ReaderT NokeeEnv IO ()
+cmdNoteListTags :: NokeeIO ()
 cmdNoteListTags = retrieveReferencedTags >>= mapM_ (liftIO . putStrLn)
 
 -- | Implementation of the command search: Displays a summary of the
 -- notes which match the specified pattern.
 cmdNoteSearch :: String -- ^ The search pattern
-              -> ReaderT NokeeEnv IO ()
+              -> NokeeIO ()
 cmdNoteSearch patt = do
   notes <- noteSearch patt
-  liftIO $ putStr $ notesPrintSummary notes
+  nokeePutStr $ notesPrintSummary notes
 
 -- | Implementation of the command init: Initialize a store with the
 -- specified name.
@@ -339,29 +356,29 @@ cmdNoteInit storeName = do
 
 -- | Given a 'NoteID', retrieves the list of tags associated with that
 -- note.
-retrieveTags :: NoteID -> ReaderT NokeeEnv IO [Tag]
+retrieveTags :: NoteID -> NokeeIO [Tag]
 retrieveTags nId = do
   noteTagIds <- nokeeQuery "SELECT * FROM NOTETAGS WHERE NOTE=?;"
-                  (Only nId) :: ReaderT NokeeEnv IO [(Integer, Integer)]
+                  (Only nId) :: NokeeIO [(Integer, Integer)]
   let tagIds = map snd noteTagIds
   liftM catMaybes (mapM lookupTagName tagIds)
 
-  where lookupTagName :: TagID -> ReaderT NokeeEnv IO (Maybe String)
+  where lookupTagName :: TagID -> NokeeIO (Maybe String)
         lookupTagName tId = do
           rows <- nokeeQuery "SELECT NAME FROM TAGS WHERE ID=?;"
-                    (Only tId) :: ReaderT NokeeEnv IO [[String]]
+                    (Only tId) :: NokeeIO [[String]]
           return $ head <$> listToMaybe rows -- FIXME (head)?
 
 -- | Given a 'NoteID', retrieves the matching row, wrapped in a 'DBNote',
 -- from the database.
-dbnoteRetrieve :: NoteID -> ReaderT NokeeEnv IO (Maybe DBNote)
+dbnoteRetrieve :: NoteID -> NokeeIO (Maybe DBNote)
 dbnoteRetrieve nId = do
   rows <- nokeeQuery "SELECT * FROM NOTES WHERE ID = ?;"
-            (Only nId) :: ReaderT NokeeEnv IO [DBNote]
+            (Only nId) :: NokeeIO [DBNote]
   return (listToMaybe rows)
 
 -- | Retrieve a complete 'Note' given its 'NoteID'.
-noteRetrieve :: NoteID -> ReaderT NokeeEnv IO (Maybe Note)
+noteRetrieve :: NoteID -> NokeeIO (Maybe Note)
 noteRetrieve nId = do
   maybeDBNote <- dbnoteRetrieve nId
   tags <- retrieveTags nId
@@ -377,24 +394,24 @@ noteRetrieve nId = do
   return maybeNote
 
 -- | Add tags to the database.
-tagsAdd :: [Tag] -> ReaderT NokeeEnv IO ()
+tagsAdd :: [Tag] -> NokeeIO ()
 tagsAdd = mapM_ tagAdd
-  where tagAdd :: Tag -> ReaderT NokeeEnv IO ()
+  where tagAdd :: Tag -> NokeeIO ()
         tagAdd tag =
           nokeeExecute "REPLACE INTO TAGS (ID, NAME) VALUES\
                        \ ((SELECT ID FROM TAGS WHERE NAME=?), ?)" (tag, tag)
 
 -- | Associates given tags with the given 'NoteID'.
-noteTagsAdd :: NoteID -> [Tag] -> ReaderT NokeeEnv IO ()
+noteTagsAdd :: NoteID -> [Tag] -> NokeeIO ()
 noteTagsAdd nId = mapM_ noteTagAdd
-  where noteTagAdd :: Tag -> ReaderT NokeeEnv IO ()
+  where noteTagAdd :: Tag -> NokeeIO ()
         noteTagAdd tag =
           nokeeExecute "INSERT INTO NOTETAGS (NOTE, TAG) VALUES \
                        \ (?, (SELECT ID FROM TAGS WHERE NAME=?));" (nId, tag)
 
 -- | Adds a new note to the database. The metadata fields in note will be
 -- ignored.
-noteAdd :: Note -> ReaderT NokeeEnv IO ()
+noteAdd :: Note -> NokeeIO ()
 noteAdd note = do
   nokeeExecute "INSERT INTO NOTES (TITLE, BODY) VALUES (?, ?);"
     (noteTitle note, noteBody note)
@@ -403,14 +420,14 @@ noteAdd note = do
   noteTagsAdd (toInteger noteId) (noteTags note)
 
 -- | Updates a note; the note must contain a valid 'NoteID'.
-noteUpdate :: Note -> ReaderT NokeeEnv IO ()
+noteUpdate :: Note -> NokeeIO ()
 noteUpdate note = do
   -- FIXME: Exception, if no noteID!
   nokeeExecute "UPDATE NOTES SET TITLE=?, BODY=?, MTIME=CURRENT_TIMESTAMP WHERE ID=?;"
     (noteTitle note, noteBody note, noteID note)
   tagsAdd (noteTags note)
   updateTags (fromJust (noteID note)) (noteTags note)
-  where updateTags :: NoteID -> [Tag] -> ReaderT NokeeEnv IO ()
+  where updateTags :: NoteID -> [Tag] -> NokeeIO ()
         updateTags nId tags = do
           nokeeExecute "DELETE FROM NOTETAGS WHERE NOTE=?;" (Only nId)
           noteTagsAdd nId tags
@@ -435,7 +452,7 @@ noteStoreInitialize storeFile = do
 
 -- | Given a search pattern, retrieve the list of those notes matching
 -- that search pattern.
-noteSearch :: String -> ReaderT NokeeEnv IO [Note]
+noteSearch :: String -> NokeeIO [Note]
 noteSearch patt = do
   let patt' = "%" ++ patt ++ "%"
   noteList (Just patt')
@@ -475,15 +492,15 @@ stringToNote string =
 -- | Retrieves a list of notes. If a search pattern is specified,
 -- retrieve only those notes matching the search pattern, otherwise
 -- return all notes in the active store.
-noteList :: Maybe String -> ReaderT NokeeEnv IO [Note]
+noteList :: Maybe String -> NokeeIO [Note]
 noteList maybePatt = do
   dbnotes <- (case maybePatt of
                 Just p -> nokeeQuery "SELECT * FROM NOTES WHERE \
                                      \TITLE LIKE ? OR BODY LIKE ?;" (p, p)
                 _      -> nokeeQuery_ "SELECT ID, TITLE, BODY, CTIME, MTIME \
-                                      \FROM NOTES;") :: ReaderT NokeeEnv IO [DBNote]
+                                      \FROM NOTES;") :: NokeeIO [DBNote]
   mapM prepareNote dbnotes
-  where prepareNote :: DBNote -> ReaderT NokeeEnv IO Note
+  where prepareNote :: DBNote -> NokeeIO Note
         prepareNote dbnote = do
           tags <- retrieveTags (dbnoteID dbnote)
           return Note { noteID = Just (dbnoteID dbnote)
@@ -495,10 +512,10 @@ noteList maybePatt = do
 
 -- | Retrieves the list of those tags which are referenced by at least
 -- one note.
-retrieveReferencedTags :: ReaderT NokeeEnv IO [Tag]
+retrieveReferencedTags :: NokeeIO [Tag]
 retrieveReferencedTags = do
   tags <- nokeeQuery_ "SELECT TAGS.NAME FROM TAGS INNER JOIN NOTETAGS \
-                      \ON TAGS.ID = NOTETAGS.TAG;" :: ReaderT NokeeEnv IO [[String]]
+                      \ON TAGS.ID = NOTETAGS.TAG;" :: NokeeIO [[String]]
   return $ nubSort (map head tags)
 
 -- | Produces a summary string given a list of notes.
@@ -516,23 +533,22 @@ notesPrintSummary notes =
           where pad n = replicate (padding - length n) ' '
 
 -- | Delete a note from the database given its 'NoteID'.
-noteDelete :: NoteID -> ReaderT NokeeEnv IO ()
+noteDelete :: NoteID -> NokeeIO ()
 noteDelete nId = do
   nokeeExecute "DELETE FROM NOTES WHERE ID=?;" (Only nId)
   nokeeExecute "DELETE FROM NOTETAGS WHERE NOTE=?;" (Only nId)
 
-nokeeRunCommand :: StoreName             -- ^ The name of the store to use
-               -> Bool                  -- ^ True, if the store shall
-                                        -- be created in case it does
-                                        -- not exist yet.
-               -> ReaderT NokeeEnv IO a -- ^ The IO action to run for
-                                        -- the specified store
-               -> IO a                  -- ^ Returns the resulting IO action
+nokeeRunCommand :: StoreName -- ^ The name of the store to use
+                -> Bool      -- ^ True, if the store shall be created
+                             -- in case it does not exist yet
+                -> NokeeIO a -- ^ The NokeeIO action to run
+                -> IO a      -- ^ Returns the resulting IO action
 nokeeRunCommand storeName createStore f = do
   -- FIXME, what about exceptions?
   storeFile <- storeFileName storeName
   storeExists <- doesFileExist storeFile
   when (not createStore && not storeExists) $
     throw (NokeeExceptionString "Store does not exist")
-  nokeeEnv <- open storeFile
-  withTransaction nokeeEnv $ runReaderT f nokeeEnv
+  storeHandle <- open storeFile
+  let nokeeEnv = NokeeEnv storeHandle
+  withTransaction storeHandle $ runReaderT f nokeeEnv
