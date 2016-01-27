@@ -75,10 +75,10 @@ nokee opts = do
   case optsCommand opts of
     Just InitOptions ->
       cmdNoteInit store
-    Just (EditOptions nId) ->
-      nokeeRunCommand store False $ cmdNoteEdit nId
-    Just (DeleteOptions nId) ->
-      nokeeRunCommand store False $ cmdNoteDelete nId
+    Just (EditOptions nRef) ->
+      callWithNoteRef store cmdNoteEdit nRef
+    Just (DeleteOptions nRef) ->
+      callWithNoteRef store cmdNoteDelete nRef
     Just AddOptions ->
       nokeeRunCommand store False cmdNoteAdd
     Just (ListOptions tags) ->
@@ -89,10 +89,17 @@ nokee opts = do
       nokeeRunCommand store False cmdNoteListTags
     Just (SearchOptions patt) ->
       nokeeRunCommand store False $ cmdNoteSearch patt
-    Just (RetrieveOptions nId) ->
-      nokeeRunCommand store False $ cmdNoteRetrieve nId
+    Just (RetrieveOptions nRef) ->
+      callWithNoteRef store cmdNoteRetrieve nRef
     Nothing ->
       throw (NokeeExceptionString "No command specified -- what should I do? Try --help.")
+
+  where callWithNoteRef store f nRefString = do
+          case nokeeParseNoteRef nRefString of
+            Right nRef -> nokeeRunCommand store False (f nRef)
+            Left  err  -> throw (NokeeExceptionString err)
+
+
 
 -- | Type holding the information about parsed arguments.
 data NokeeOptions = NokeeOptions
@@ -102,11 +109,11 @@ data NokeeOptions = NokeeOptions
 
 -- | Type for storing information about the parsed commands.
 data Command
-  = RetrieveOptions Integer
+  = RetrieveOptions String
   | AddOptions
   | ListOptions String
-  | EditOptions Integer
-  | DeleteOptions Integer
+  | EditOptions String
+  | DeleteOptions String
   | SearchOptions String
   | InitOptions
   | ListStoreOptions
@@ -153,10 +160,10 @@ nokeeOptions = NokeeOptions
                                                        <> help "Specify tags.")
         listStoresOptions = pure ListStoreOptions
         listTagsOptions   = pure ListTagsOptions
-        editOptions       = EditOptions     <$> argument auto (metavar "ID")
-        deleteOptions     = DeleteOptions   <$> argument auto (metavar "ID")
+        editOptions       = EditOptions     <$> argument str (metavar "NOTEREF")
+        deleteOptions     = DeleteOptions   <$> argument str (metavar "NOTEREF")
         searchOptions     = SearchOptions   <$> argument str  (metavar "PATTERN")
-        retrieveOptions   = RetrieveOptions <$> argument auto (metavar "ID")
+        retrieveOptions   = RetrieveOptions <$> argument str (metavar "NOTEREF")
 
 -- | Main entry point. This parses arguments and passes the parsed
 -- arguments to main'.

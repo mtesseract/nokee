@@ -26,6 +26,8 @@ module Nokee (StoreName,
               cmdNoteListTags,
               cmdNoteSearch,
               cmdNoteInit,
+              NoteRef,
+              nokeeParseNoteRef,
               nokeeRunCommand)
        where
 
@@ -47,6 +49,7 @@ import System.FilePath
 import System.IO
 import System.IO.Temp
 import Text.Regex.TDFA
+import Text.Read
 import Utilities
 
 -----------------------------
@@ -130,6 +133,16 @@ type StoreName   = String
 
 -- | A note identifier is an 'Integer'.
 type NoteID      = Integer
+
+-- | A 'note reference' is a value that (pseudo-)uniquely references a
+-- note in the note store. At the moment there are only two ways to
+-- reference notes: first by their integral note IDs and second using
+-- the keyword 'last' to reference the note that has been modified
+-- most recently. This is only 'pseudo-unique', because using the
+-- keyword 'last' simply looks at the modification timestamp in the
+-- database and it should be possible to produce two notes in the note
+-- store having the same modification timestamp.
+data NoteRef     = NoteRefID NoteID | NoteRefLast deriving (Show)
 
 -- | A tag is a 'String'.
 type Tag         = String
@@ -261,40 +274,42 @@ cmdNoteAdd =
 
 -- | Implementation of the command delete: Removes a note given its
 -- 'NoteID'.
-cmdNoteDelete :: NoteID -> NokeeIO ()
+cmdNoteDelete :: NoteRef -> NokeeIO ()
 cmdNoteDelete = noteDelete
 
 -- | Implementation of the command retrieve: Retrieves the note with
--- the specified 'NoteID' and displays it on standard out.
-cmdNoteRetrieve :: NoteID -> NokeeIO ()
-cmdNoteRetrieve nId = do
+-- the specified 'NoteRef' and send it to standard out.
+cmdNoteRetrieve :: NoteRef -> NokeeIO ()
+cmdNoteRetrieve nRef = do
+  nId <- noteRefNormalize nRef
   maybeNote <- noteRetrieve nId
   case maybeNote of
     Just note -> nokeePutStr (noteToString note)
     Nothing   -> nokeePutStr "Note not found."
 
 -- | Implementation of the command edit: Retrieves the note with the
--- specified 'NoteID' from the database, spawns an editor and lets the
--- user edit the note. After editing, updates the note in the
+-- specified 'NoteRef' from the database, spawns an editor and lets
+-- the user edit the note. After editing, updates the note in the
 -- database.
-cmdNoteEdit :: NoteID -> NokeeIO ()
-cmdNoteEdit nId =
+cmdNoteEdit :: NoteRef -> NokeeIO ()
+cmdNoteEdit nRef = do
+  nId <- noteRefNormalize nRef
   withSystemTempFile tmpfileTemplate
     (\ filename fHandle -> do
         maybeNote <- noteRetrieve nId
         case maybeNote of
           Just note -> do liftIO $ do hPutStr fHandle (noteToString note)
                                       hClose fHandle -- from now on we only work with the path.
-                          cmdNoteUpdate' filename
+                          cmdNoteUpdate' filename nId
           Nothing -> nokeePutStrLn "Note not found.") -- exception?
 
-  where cmdNoteUpdate' filename = do
+  where cmdNoteUpdate' filename nId = do
           _ <- liftIO $ editor filename
           -- FIXME: exception.
           contents <- liftIO $ readFile filename
           case stringToNote contents of
             Just note -> noteUpdate (note { noteID = Just nId })
-            Nothing -> cmdNoteUpdate' filename
+            Nothing -> cmdNoteUpdate' filename nId
 
 -- | Implementation of the command list: Displays a summary of notes
 -- matching the given list of tags or all notes in the store if no
@@ -532,9 +547,30 @@ notesPrintSummary notes =
           in pad nId ++ nId ++ " " ++ cTime ++ " " ++ noteTitle note
           where pad n = replicate (padding - length n) ' '
 
--- | Delete a note from the database given its 'NoteID'.
-noteDelete :: NoteID -> NokeeIO ()
-noteDelete nId = do
+-- | Computation converting a NoteRef into a NoteID.
+noteRefNormalize :: NoteRef -> NokeeIO NoteID
+noteRefNormalize (NoteRefID n) = return n
+noteRefNormalize NoteRefLast = do
+  res <- nokeeQuery_ "SELECT ID FROM NOTES \
+                     \ORDER BY MTIME \
+                     \DESC LIMIT 1;" :: NokeeIO [Only NoteID]
+  return $ case res of
+    []       -> throw (NokeeExceptionString "There is no 'last' note")
+    (Only nId) : _ -> nId
+
+-- | Convert the string representation of a note reference into a
+-- NoteRef value. May throw exceptions.
+nokeeParseNoteRef :: String -> Either String NoteRef
+nokeeParseNoteRef "last" = Right NoteRefLast
+nokeeParseNoteRef s =
+  case (readMaybe s :: Maybe NoteID) of
+    Just nId -> Right $ NoteRefID nId
+    Nothing  -> Left "Invalid note reference"
+
+-- | Delete a note from the database given a 'NoteRef'.
+noteDelete :: NoteRef -> NokeeIO ()
+noteDelete nRef = do
+  nId <- noteRefNormalize nRef
   nokeeExecute "DELETE FROM NOTES WHERE ID=?;" (Only nId)
   nokeeExecute "DELETE FROM NOTETAGS WHERE NOTE=?;" (Only nId)
 
