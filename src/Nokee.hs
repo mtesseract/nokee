@@ -285,7 +285,7 @@ cmdNoteRetrieve nRef = do
   maybeNote <- noteRetrieve nId
   case maybeNote of
     Just note -> nokeePutStr (noteToString note)
-    Nothing   -> nokeePutStr "Note not found."
+    Nothing   -> throw (NokeeExceptionString "Note not found")
 
 -- | Implementation of the command edit: Retrieves the note with the
 -- specified 'NoteRef' from the database, spawns an editor and lets
@@ -301,7 +301,7 @@ cmdNoteEdit nRef = do
           Just note -> do liftIO $ do hPutStr fHandle (noteToString note)
                                       hClose fHandle -- from now on we only work with the path.
                           cmdNoteUpdate' filename nId
-          Nothing -> nokeePutStrLn "Note not found.") -- exception?
+          Nothing -> throw (NokeeExceptionString "Note not found"))
 
   where cmdNoteUpdate' filename nId = do
           _ <- liftIO $ editor filename
